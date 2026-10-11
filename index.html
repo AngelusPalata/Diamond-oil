@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Diamond Oil</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+
+  <nav id="navbar">
+    <button id="menu-btn" type="button" aria-label="Ouvrir le menu" aria-expanded="false">☰</button>
+    <div id="logo">Diamond Oil</div>
+    <div class="nav-actions">
+      <button id="language-btn" type="button" aria-label="Switch language to English">EN</button>
+      <button id="cart-btn" type="button" aria-label="Ouvrir le panier" aria-expanded="false">
+        <i class="fa-solid fa-cart-shopping" aria-hidden="true"></i>
+        <span id="cart-count" aria-live="polite">0</span>
+      </button>
+    </div>
+  </nav>
+
+  <div id="side-menu">
+    <ul>
+      <li><a href="#hero" data-i18n="navHome">Accueil</a></li>
+      <li><a href="#products" data-i18n="navProducts">Parfums</a></li>
+      <li><a href="#reviews" data-i18n="navReviews">Avis</a></li>
+    </ul>
+  </div>
+
+  <div id="cart-panel">
+    <h2 data-i18n="cartTitle">Votre panier</h2>
+    <div id="cart-items">
+      <p id="empty-cart-msg" data-i18n="emptyCart">Votre panier est vide.</p>
+    </div>
+    <div id="cart-total">Total : $0</div>
+
+    <div id="order-form">
+      <label>
+        <span data-i18n="fullName">Nom complet</span>
+        <input id="order-name" type="text" placeholder="Votre nom" data-i18n-placeholder="namePlaceholder" />
+      </label>
+
+      <label>
+        <span data-i18n="phone">Téléphone</span>
+        <input id="order-phone" type="tel" placeholder="Votre numéro de téléphone" data-i18n-placeholder="phonePlaceholder" />
+      </label>
+
+      <label>
+        <span data-i18n="address">Adresse de livraison</span>
+        <textarea id="order-address" rows="3" placeholder="Rue, ville, région" data-i18n-placeholder="addressPlaceholder"></textarea>
+      </label>
+
+      <label>
+        <span data-i18n="paymentMethod">Mode de paiement</span>
+        <select id="payment-method">
+          <option value="cashOnDelivery" data-i18n="cashOnDelivery" selected>Paiement à la livraison</option>
+          <option value="mpesa" data-i18n="mpesa">M-Pesa</option>
+          <option value="orangeMoney" data-i18n="orangeMoney">Orange Money</option>
+          <option value="airtelMoney" data-i18n="airtelMoney">Airtel Money</option>
+        </select>
+      </label>
+      <p id="mobile-money-note" data-i18n="mobileMoneyNote">Pour Mobile Money, le vendeur vous communiquera les informations de paiement sur WhatsApp. La commande sera confirmée après vérification du paiement.</p>
+
+      <label>
+        <span data-i18n="orderNotes">Notes de commande</span>
+        <textarea id="order-notes" rows="2" placeholder="Notes facultatives" data-i18n-placeholder="notesPlaceholder"></textarea>
+      </label>
+    </div>
+
+    <button id="checkout-btn" type="button" data-i18n="checkout">Commander sur WhatsApp</button>
+    <p id="order-status" role="status" aria-live="polite" hidden></p>
+    <a id="order-whatsapp-link" target="_blank" rel="noopener noreferrer" hidden data-i18n="openWhatsapp">Ouvrir la commande dans WhatsApp</a>
+  </div>
+
+  <section id="hero">
+    <p id="tagline" data-i18n="tagline">Portez votre signature</p>
+    <img src="image/main-pic.jpeg" alt="Flacon de parfum Diamond Oil" id="main-visual" data-i18n-alt="heroAlt">
+  </section>
+  <section id="products" aria-labelledby="products-title">
+    <div class="section-heading">
+      <p class="eyebrow" data-i18n="selection">La sélection Diamond Oil</p>
+      <h2 id="products-title" data-i18n="ourFragrance">Notre parfum</h2>
+    </div>
+    <article class="product-card" aria-labelledby="product-title">
+      <img class="product-image" src="image/main-pic.jpeg" alt="Flacon du parfum AZZARO The Most Wanted" data-i18n-alt="productAlt">
+      <div class="product-details">
+        <p class="product-brand">AZZARO</p>
+        <h2 id="product-title">The Most Wanted</h2>
+        <p class="product-size">30 ml</p>
+        <p class="product-description" data-i18n="productSummary">Un parfum mixte, chaud et gourmand, aux accents épicés et ambrés.</p>
+        <details class="product-more">
+          <summary data-i18n="learnMore">Découvrir la description</summary>
+          <p data-i18n="productFullDescription">Une fragrance de caractère, à la fois sensuelle et sophistiquée, pour celles et ceux qui aiment les parfums envoûtants.</p>
+          <dl class="fragrance-notes">
+            <div>
+              <dt data-i18n="cardamom">Cardamome</dt>
+              <dd data-i18n="cardamomDesc">Une touche épicée et raffinée.</dd>
+            </div>
+            <div>
+              <dt data-i18n="caramel">Caramel fondant</dt>
+              <dd data-i18n="caramelDesc">Une douceur gourmande et addictive.</dd>
+            </div>
+            <div>
+              <dt data-i18n="amberWood">Bois ambré</dt>
+              <dd data-i18n="amberWoodDesc">Un fond chaud, profond et élégant.</dd>
+            </div>
+          </dl>
+        </details>
+        <div class="product-quantity">
+          <label for="product-quantity" data-i18n="quantity">Quantité</label>
+          <input id="product-quantity" type="number" min="1" step="1" value="1" inputmode="numeric" data-product-quantity>
+        </div>
+        <div class="product-purchase">
+          <strong class="product-price">$35.00</strong>
+          <button
+            class="add-to-cart-btn"
+            type="button"
+            data-add-to-cart
+            data-product-id="azzaro-the-most-wanted"
+            data-product-name="AZZARO The Most Wanted"
+            data-product-price="35"
+            data-i18n="addToCart"
+          >Ajouter au panier</button>
+        </div>
+      </div>
+    </article>
+  </section>
+  <section id="reviews">
+    <div class="section-heading fade-in">
+      <p class="eyebrow" data-i18n="customerLove">Avis clients</p>
+      <h2 data-i18n="reviewsTitle">Les avis de nos clients</h2>
+    </div>
+    <div id="reviews-grid">
+      <article class="review-card fade-in">
+        <div class="review-stars" role="img" data-i18n-aria="reviewRating">★★★★★</div>
+        <blockquote data-i18n="reviewOne">« Ton huile, mon coup de cœur : je me lave avec et je n’utilise même plus l’eau de Cologne. Une pépite, ça sent tellement bon. »</blockquote>
+        <p class="review-customer" data-i18n="reviewCustomer">Cliente Diamond Oil</p>
+      </article>
+      <article class="review-card fade-in">
+        <div class="review-stars" role="img" data-i18n-aria="reviewRating">★★★★★</div>
+        <blockquote data-i18n="reviewTwo">« J’ai reçu tellement de compliments, wow… C’est une dinguerie ! »</blockquote>
+        <p class="review-customer" data-i18n="reviewCustomer">Cliente Diamond Oil</p>
+      </article>
+      <article class="review-card fade-in">
+        <div class="review-stars" role="img" data-i18n-aria="reviewRating">★★★★★</div>
+        <blockquote data-i18n="reviewThree">« Quelqu’un m’a dit : “Qu’est-ce qui sent bon comme ça ?” C’était vraiment le meilleur compliment que j’ai reçu. »</blockquote>
+        <p class="review-customer" data-i18n="reviewCustomer">Cliente Diamond Oil</p>
+      </article>
+    </div>
+  </section>
+  <footer id="site-footer">
+    <div id="footer-socials">
+      <a href="https://www.instagram.com/diamondoil_kinshasa/" target="_blank" rel="noopener noreferrer" aria-label="Instagram" data-i18n-aria="instagramLabel"><i class="fa-brands fa-instagram"></i></a>
+      <a href="https://wa.me/243996572988" target="_blank" rel="noopener noreferrer" aria-label="WhatsApp" data-i18n-aria="whatsappLabel"><i class="fa-brands fa-whatsapp"></i></a>
+    </div>
+    <p data-i18n="designerCredit">Par AngelusDesign</p>
+  </footer>
+
+  <button id="bottom-order-btn" type="button" data-i18n="orderNow" hidden>Commander</button>
+
+  <script src="script.js"></script>
+</body>
+</html>
