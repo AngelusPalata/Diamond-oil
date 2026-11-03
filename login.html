@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Login - Diamond Oil</title>
+    <link rel="stylesheet" href="login.css" />
+  </head>
+  <body>
+    <main class="auth-box">
+      <div class="top-row">
+        <div class="brand">Diamond Oil</div>
+        <div class="auth-lang-switch" aria-label="Language switcher">
+          <button type="button" class="lang-btn active" data-auth-lang="fr">FR</button>
+          <button type="button" class="lang-btn" data-auth-lang="en">EN</button>
+        </div>
+      </div>
+
+      <h1 id="login-title">Connexion</h1>
+      <p id="login-subtitle" class="subtitle">Bienvenue dans le tableau de bord vendeur.</p>
+
+      <form id="login-form">
+        <div class="form-row">
+          <label id="username-label" for="username">Nom d'utilisateur</label>
+          <input id="username" name="username" type="text" autocomplete="username" required />
+        </div>
+
+        <div class="form-row">
+          <label id="password-label" for="password">Mot de passe</label>
+          <div class="password-stack">
+            <input id="password" name="password" type="password" autocomplete="current-password" required />
+            <button
+              type="button"
+              class="toggle-password"
+              data-toggle-password="password"
+              aria-label="Afficher le mot de passe"
+              aria-pressed="false"
+            >
+              👁
+            </button>
+          </div>
+        </div>
+
+        <button id="login-button" type="submit">Se connecter</button>
+        <div id="login-message" class="notice" aria-live="polite"></div>
+      </form>
+    </main>
+
+    <script src="seller-translations.js"></script>
+    <script src="login.js"></script>
+  </body>
+</html>

@@ -421,6 +421,20 @@ html, body {
   font-size: 20px;
 }
 
+#site-footer p a {
+  display: inline-block;
+  color: #d9c7a3;
+  text-decoration: none;
+  transition: color 0.2s ease, transform 0.2s ease;
+}
+
+#site-footer p a:hover {
+  color: #e8c878;
+  transform: translateY(-1px);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+
 /*
   Social links container in the footer.
 */

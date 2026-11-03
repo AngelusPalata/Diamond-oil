@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Diamond Oil Seller</title>
+    <link rel="stylesheet" href="seller.css" />
+  </head>
+  <body>
+    <div class="dashboard-shell">
+      <header class="topbar">
+        <div class="brand">Diamond Oil</div>
+
+        <div class="topbar-actions">
+          <div class="lang-switch" aria-label="Language switcher">
+            <button id="lang-fr" type="button" class="active" data-lang="fr">FR</button>
+            <button id="lang-en" type="button" data-lang="en">EN</button>
+          </div>
+
+          <button id="logout-btn" type="button" class="logout-btn">Déconnexion</button>
+        </div>
+      </header>
+
+      <div class="page-header">
+        <h1 id="page-title">Tableau de bord vendeur</h1>
+        <p id="page-subtitle" class="subheading">Gérez les parfums et le stock.</p>
+      </div>
+
+      <section class="panel stats-panel" aria-labelledby="stats-title">
+        <h2 id="stats-title" class="form-title">Statistiques</h2>
+        <div class="stats-grid">
+          <article class="stat-card">
+            <span id="stat-products-label" class="stat-label">Produits</span>
+            <strong id="stat-products">0</strong>
+          </article>
+          <article class="stat-card">
+            <span id="stat-low-stock-label" class="stat-label">Stock faible</span>
+            <strong id="stat-low-stock">0</strong>
+          </article>
+          <article class="stat-card">
+            <span id="stat-orders-label" class="stat-label">Commandes</span>
+            <strong id="stat-orders">0</strong>
+          </article>
+          <article class="stat-card">
+            <span id="stat-revenue-label" class="stat-label">Ventes confirmées</span>
+            <strong id="stat-revenue">$0.00</strong>
+          </article>
+        </div>
+
+        <div class="stats-summary">
+          <div class="summary-item">
+            <span id="stat-pending-label">En attente</span>
+            <strong id="stat-pending">0</strong>
+          </div>
+          <div class="summary-item">
+            <span id="stat-visitors-label">Visiteurs</span>
+            <strong id="stat-visitors">0</strong>
+          </div>
+          <div class="summary-item">
+            <span id="stat-confirmed-label">Confirmées</span>
+            <strong id="stat-confirmed-orders">0</strong>
+          </div>
+          <div class="summary-item">
+            <span id="stat-average-order-label">Valeur moyenne</span>
+            <strong id="stat-average-order">$0.00</strong>
+          </div>
+          <div class="summary-item">
+            <span id="stat-conversion-label">Taux de conversion</span>
+            <strong id="stat-conversion-rate">0%</strong>
+          </div>
+          <div class="summary-item">
+            <span id="stat-top-product-label">Meilleur vendeur</span>
+            <strong id="stat-top-product">-</strong>
+          </div>
+        </div>
+
+        <div class="sales-history">
+          <h3 id="sales-history-title">Historique des ventes</h3>
+          <ul id="sales-history-list" class="sales-list"></ul>
+        </div>
+
+        <div class="sales-history">
+          <h3 id="visitors-history-title">Visiteurs par jour</h3>
+          <ul id="visitors-history-list" class="sales-list"></ul>
+        </div>
+      </section>
+
+      <main class="dashboard-grid">
+        <section class="panel" aria-labelledby="product-form-title">
+          <h2 id="product-form-title" class="form-title">Ajouter un parfum</h2>
+
+          <form id="product-form">
+            <div class="form-grid">
+              <div class="form-row">
+                <label for="product-name">Nom du parfum</label>
+                <input id="product-name" name="name" type="text" required />
+              </div>
+
+              <div class="form-row">
+                <label for="product-size">Taille</label>
+                <input id="product-size" name="size" type="text" placeholder="30 ml" required />
+              </div>
+
+              <div class="form-row">
+                <label for="product-price">Prix ($)</label>
+                <input id="product-price" name="price" type="number" min="0" step="0.01" required />
+              </div>
+
+              <div class="form-row">
+                <label for="product-quantity">Quantité</label>
+                <input id="product-quantity" name="quantity" type="number" min="0" step="1" required />
+              </div>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="primary-btn" id="submit-btn">Enregistrer</button>
+              <button type="button" class="secondary-btn hidden" id="cancel-edit-btn">Annuler</button>
+            </div>
+
+            <div id="form-message" class="notice" aria-live="polite"></div>
+          </form>
+        </section>
+
+        <section class="panel" aria-labelledby="products-table-title">
+          <h2 id="products-table-title" class="form-title">Produits et stock</h2>
+
+          <div class="table-wrap">
+            <table class="inventory-table">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th>Taille</th>
+                  <th>Prix</th>
+                  <th>Quantité</th>
+                  <th>Statut</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody id="products-table-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel" aria-labelledby="orders-title">
+          <h2 id="orders-title" class="form-title">Commandes</h2>
+          <div id="orders-list" class="orders-list"></div>
+        </section>
+      </main>
+    </div>
+
+    <script src="seller-translations.js"></script>
+    <script src="seller.js"></script>
+  </body>
+</html>

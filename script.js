@@ -48,6 +48,11 @@ const translations = {
     reviewOne: "« Ton huile, mon coup de cœur : je me lave avec et je n’utilise même plus l’eau de Cologne. Une pépite, ça sent tellement bon. »",
     reviewTwo: "« J’ai reçu tellement de compliments, wow… C’est une dinguerie ! »",
     reviewThree: "« Quelqu’un m’a dit : “Qu’est-ce qui sent bon comme ça ?” C’était vraiment le meilleur compliment que j’ai reçu. »",
+    reviewFour: "« Tu es la meilleure, tes parfums sont des pépites. »",
+    reviewFive: "« Malgré les odeurs de nourriture, un médecin m’a dit : “Waouh, tu sens bon !” C’était le meilleur compliment que j’ai reçu hier. Merci pour tes huiles. »",
+    reviewSix: "« Ça sent trop bon… J’ai même dit que c’est aussi pour les garçons. »",
+    reviewSeven: "« J’ai reçu tellement de compliments… livre-m’en deux encore demain, je vais faire mon stock. »",
+    reviewEight: "« Tes huiles sont vraiment une pépite ! Une femme devrait en avoir dans sa trousse d’urgence et dans son sac à main. »",
     reviewCustomer: "Cliente Diamond Oil",
     reviewRating: "5 étoiles sur 5",
     orderNow: (amount) => `Commander · $${amount}`,
@@ -55,7 +60,8 @@ const translations = {
     productAlt: "Flacon du parfum AZZARO The Most Wanted",
     instagramLabel: "Instagram",
     whatsappLabel: "WhatsApp",
-    designerCredit: "Par AngelusDesign",
+    designerCredit: "Par ",
+    designerName: "AngelusDesign",
     invalidProduct: "Ce produit ne peut pas être ajouté : son nom ou son prix est manquant.",
     invalidQuantity: "Veuillez choisir une quantité entière d’au moins 1.",
     addedToCart: (name) => `${name} ajouté au panier.`,
@@ -123,6 +129,11 @@ const translations = {
     reviewOne: "“Your oil is my favorite: I wash with it and don’t even use cologne anymore. It’s a gem; it smells so good.”",
     reviewTwo: "“I got so many compliments, wow… it’s incredible!”",
     reviewThree: "“Someone asked me, ‘What smells so good?’ It was really the best compliment I’ve ever received.”",
+    reviewFour: "“You’re the best; your perfumes are gems.”",
+    reviewFive: "“Even with all the food smells around, a doctor told me, ‘Wow, you smell good!’ It was the best compliment I got yesterday. Thank you for your oils.”",
+    reviewSix: "“It smells so good… I even told them it’s for men too.”",
+    reviewSeven: "“I got so many compliments… bring me two more tomorrow; I’m going to stock up.”",
+    reviewEight: "“Your oils are such a gem! Every woman should have one in her emergency kit and handbag.”",
     reviewCustomer: "Diamond Oil customer",
     reviewRating: "5 out of 5 stars",
     orderNow: (amount) => `Order now · $${amount}`,
@@ -130,7 +141,8 @@ const translations = {
     productAlt: "AZZARO The Most Wanted perfume bottle",
     instagramLabel: "Instagram",
     whatsappLabel: "WhatsApp",
-    designerCredit: "By AngelusDesign",
+    designerCredit: "By ",
+    designerName: "AngelusDesign",
     invalidProduct: "This product cannot be added because its name or price is missing.",
     invalidQuantity: "Choose a whole-number quantity of at least 1.",
     addedToCart: (name) => `${name} added to your cart.`,
@@ -164,6 +176,17 @@ try {
 function text(key, ...args) {
   const value = translations[currentLanguage][key];
   return typeof value === "function" ? value(...args) : value;
+}
+
+async function trackVisitor() {
+  try {
+    await fetch("/api/track-visitor", {
+      method: "GET",
+      credentials: "same-origin"
+    });
+  } catch (error) {
+    console.error("Visitor tracking request failed.", error);
+  }
 }
 
 function translatePage() {
@@ -442,6 +465,7 @@ checkoutBtn.addEventListener("click", function() {
   window.open(whatsappUrl, "_blank", "noopener,noreferrer");
 });
 
+trackVisitor();
 translatePage();
 
 const fadeElements = document.querySelectorAll(".fade-in");
