@@ -72,16 +72,54 @@
             <span id="stat-top-product-label">Meilleur vendeur</span>
             <strong id="stat-top-product">-</strong>
           </div>
+          <div class="summary-item">
+            <span id="stat-slowest-product-label">Le moins vendu</span>
+            <strong id="stat-slowest-product">-</strong>
+          </div>
+        </div>
+
+        <div class="stats-summary money-summary">
+          <div class="summary-item money-item">
+            <span id="stat-today-label">Aujourd'hui</span>
+            <strong id="stat-today-revenue">$0.00</strong>
+          </div>
+          <div class="summary-item money-item">
+            <span id="stat-week-label">Cette semaine</span>
+            <strong id="stat-week-revenue">$0.00</strong>
+          </div>
+          <div class="summary-item money-item">
+            <span id="stat-month-label">Ce mois</span>
+            <strong id="stat-month-revenue">$0.00</strong>
+          </div>
         </div>
 
         <div class="sales-history">
           <h3 id="sales-history-title">Historique des ventes</h3>
+          <div id="sales-chart" class="sales-chart" aria-label="Sales chart"></div>
           <ul id="sales-history-list" class="sales-list"></ul>
         </div>
 
         <div class="sales-history">
           <h3 id="visitors-history-title">Visiteurs par jour</h3>
           <ul id="visitors-history-list" class="sales-list"></ul>
+        </div>
+
+        <div class="sales-history">
+          <h3 id="inventory-report-title">Tableau d'inventaire</h3>
+          <div class="table-wrap">
+            <table class="inventory-table luxury-table">
+              <thead>
+                <tr>
+                  <th>Produit</th>
+                  <th>Stock initial</th>
+                  <th>Vendu</th>
+                  <th>Stock restant</th>
+                  <th>Argent</th>
+                </tr>
+              </thead>
+              <tbody id="inventory-report-body"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

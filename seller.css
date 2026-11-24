@@ -241,6 +241,12 @@ h1 {
   color: #ffb1b1;
 }
 
+.low-stock-note {
+  margin-top: 8px;
+  color: #ffb1b1;
+  font-size: 0.8rem;
+}
+
 .action-group {
   display: flex;
   gap: 8px;
@@ -325,6 +331,56 @@ h1 {
 
 .sales-history {
   margin-top: 20px;
+}
+
+.sales-chart {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(52px, 1fr));
+  align-items: end;
+  gap: 10px;
+  margin: 12px 0 18px;
+  min-height: 130px;
+  padding: 10px 8px 0;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.sales-chart-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: end;
+  gap: 6px;
+  min-height: 110px;
+}
+
+.sales-bar-wrap {
+  width: 100%;
+  max-width: 38px;
+  height: 80px;
+  display: flex;
+  align-items: end;
+  justify-content: center;
+  border-radius: 8px 8px 0 0;
+  background: rgba(212, 175, 55, 0.08);
+  overflow: hidden;
+}
+
+.sales-bar {
+  display: block;
+  width: 100%;
+  min-height: 10px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, var(--brand-soft) 0%, var(--brand) 100%);
+}
+
+.money-summary {
+  margin-top: 14px;
+}
+
+.money-item {
+  min-width: 150px;
 }
 
 .sales-history h3 {
@@ -483,5 +539,13 @@ h1 {
 
   .summary-item {
     justify-content: space-between;
+  }
+
+  .money-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .sales-chart {
+    grid-template-columns: repeat(auto-fit, minmax(42px, 1fr));
   }
 }

@@ -11,13 +11,33 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3000;
-const dbFolder = path.join(__dirname, "data");
+const NODE_ENV = process.env.NODE_ENV || "development";
+const SESSION_SECRET = process.env.SESSION_SECRET || "";
+const SELLER_USERNAME = String(process.env.SELLER_USERNAME || "").trim();
+const SELLER_PASSWORD = process.env.SELLER_PASSWORD || "";
+const dbFolder = process.env.DATABASE_DIR
+  ? path.resolve(__dirname, process.env.DATABASE_DIR)
+  : path.resolve(__dirname, "..", "diamond-oil-private-data");
+const relativeDbFolder = path.relative(__dirname, dbFolder);
+if (
+  relativeDbFolder === ""
+  || (relativeDbFolder !== ".." && !relativeDbFolder.startsWith(`..${path.sep}`) && !path.isAbsolute(relativeDbFolder))
+) {
+  throw new Error("DATABASE_DIR must be outside the application folder.");
+}
 const dbPath = path.join(dbFolder, "diamond_oil.db");
-const SELLER_USERNAME = process.env.SELLER_USERNAME || "seller";
-const SELLER_PASSWORD = process.env.SELLER_PASSWORD || "tempPassword123";
+const legacyDbPath = path.join(__dirname, "data", "diamond_oil.db");
+
+if (SESSION_SECRET.length < 32 || SESSION_SECRET.startsWith("replace_with_")) {
+  throw new Error("Set SESSION_SECRET to a private value that is at least 32 characters long.");
+}
 
 if (!fs.existsSync(dbFolder)) {
   fs.mkdirSync(dbFolder, { recursive: true });
+}
+
+if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
+  fs.renameSync(legacyDbPath, dbPath);
 }
 
 const db = new sqlite3.Database(dbPath, (error) => {
@@ -28,7 +48,15 @@ const db = new sqlite3.Database(dbPath, (error) => {
   console.log("Connected to SQLite database.");
 });
 
-function runSql(sql, params = []) {
+let databaseQueue = Promise.resolve();
+
+function enqueueDatabaseOperation(operation) {
+  const result = databaseQueue.then(operation);
+  databaseQueue = result.catch(() => {});
+  return result;
+}
+
+function rawRunSql(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (error) {
       if (error) {
@@ -40,7 +68,7 @@ function runSql(sql, params = []) {
   });
 }
 
-function getSql(sql, params = []) {
+function rawGetSql(sql, params = []) {
   return new Promise((resolve, reject) => {
     db.all(sql, params, (error, rows) => {
       if (error) {
@@ -50,6 +78,93 @@ function getSql(sql, params = []) {
       resolve(rows);
     });
   });
+}
+
+function runSql(sql, params = []) {
+  return enqueueDatabaseOperation(() => rawRunSql(sql, params));
+}
+
+function getSql(sql, params = []) {
+  return enqueueDatabaseOperation(() => rawGetSql(sql, params));
+}
+
+function withTransaction(operation) {
+  return enqueueDatabaseOperation(async () => {
+    await rawRunSql("BEGIN IMMEDIATE");
+    try {
+      const result = await operation({ run: rawRunSql, get: rawGetSql });
+      await rawRunSql("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await rawRunSql("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("Database transaction rollback failed:", rollbackError);
+        throw rollbackError;
+      }
+      throw error;
+    }
+  });
+}
+
+function createRequestError(status, message) {
+  const error = new Error(message);
+  error.status = status;
+  return error;
+}
+
+function getSessionExpiry(sess) {
+  const expiresAt = sess.cookie && sess.cookie.expires
+    ? new Date(sess.cookie.expires).getTime()
+    : Date.now() + Number(sess.cookie && sess.cookie.maxAge || 0);
+  return Number.isFinite(expiresAt) ? expiresAt : Date.now() + 8 * 60 * 60 * 1000;
+}
+
+class SQLiteSessionStore extends session.Store {
+  get(sessionId, callback) {
+    getSql("SELECT sess, expires FROM seller_sessions WHERE sid = ?", [sessionId])
+      .then(async (rows) => {
+        if (rows.length === 0) {
+          callback(null, null);
+          return;
+        }
+        if (rows[0].expires <= Date.now()) {
+          await runSql("DELETE FROM seller_sessions WHERE sid = ?", [sessionId]);
+          callback(null, null);
+          return;
+        }
+        callback(null, JSON.parse(rows[0].sess));
+      })
+      .catch(callback);
+  }
+
+  set(sessionId, sess, callback) {
+    runSql(
+      `
+        INSERT INTO seller_sessions (sid, sess, expires)
+        VALUES (?, ?, ?)
+        ON CONFLICT(sid) DO UPDATE SET sess = excluded.sess, expires = excluded.expires
+      `,
+      [sessionId, JSON.stringify(sess), getSessionExpiry(sess)]
+    )
+      .then(() => callback && callback(null))
+      .catch((error) => callback && callback(error));
+  }
+
+  touch(sessionId, sess, callback) {
+    runSql(
+      "UPDATE seller_sessions SET expires = ? WHERE sid = ?",
+      [getSessionExpiry(sess), sessionId]
+    )
+      .then(() => callback && callback(null))
+      .catch((error) => callback && callback(error));
+  }
+
+  destroy(sessionId, callback) {
+    runSql("DELETE FROM seller_sessions WHERE sid = ?", [sessionId])
+      .then(() => callback && callback(null))
+      .catch((error) => callback && callback(error));
+  }
 }
 
 async function initDatabase() {
@@ -74,6 +189,16 @@ async function initDatabase() {
       created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
     )
   `);
+
+  await runSql(`
+    CREATE TABLE IF NOT EXISTS seller_sessions (
+      sid TEXT PRIMARY KEY NOT NULL,
+      sess TEXT NOT NULL,
+      expires INTEGER NOT NULL
+    )
+  `);
+  await runSql("CREATE INDEX IF NOT EXISTS idx_seller_sessions_expiry ON seller_sessions(expires)");
+  await runSql("DELETE FROM seller_sessions WHERE expires <= ?", [Date.now()]);
 
   await runSql(`
     CREATE TABLE IF NOT EXISTS orders (
@@ -132,38 +257,34 @@ async function initDatabase() {
   const existingSeller = sellerRows[0] || null;
 
   if (!existingSeller) {
+    if (!SELLER_USERNAME || SELLER_PASSWORD.length < 12 || SELLER_PASSWORD.startsWith("replace_with_")) {
+      throw new Error("Set SELLER_USERNAME and a private SELLER_PASSWORD that is at least 12 characters long.");
+    }
+
     const hashedPassword = await bcrypt.hash(SELLER_PASSWORD, 10);
     await runSql(
       "INSERT INTO sellers (username, password_hash, must_change_password) VALUES (?, ?, 1)",
       [SELLER_USERNAME, hashedPassword]
     );
     console.log("First seller account created from the .env settings.");
-    return;
   }
+}
 
-  const usernameMatches = existingSeller.username === SELLER_USERNAME;
-  const passwordMatches = await bcrypt.compare(SELLER_PASSWORD, existingSeller.password_hash);
-
-  if (!usernameMatches || !passwordMatches) {
-    const hashedPassword = await bcrypt.hash(SELLER_PASSWORD, 10);
-    await runSql("DELETE FROM sellers");
-    await runSql(
-      "INSERT INTO sellers (username, password_hash, must_change_password) VALUES (?, ?, 1)",
-      [SELLER_USERNAME, hashedPassword]
-    );
-    console.log("Seller account reset from the current .env values.");
-  }
+const isProduction = NODE_ENV === "production";
+if (isProduction) {
+  app.set("trust proxy", 1);
 }
 
 app.use(
   session({
-    secret: process.env.SESSION_SECRET || "diamond-oil-session-secret",
+    store: new SQLiteSessionStore(),
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
       httpOnly: true,
       sameSite: "lax",
-      secure: false,
+      secure: isProduction,
       maxAge: 1000 * 60 * 60 * 8
     }
   })
@@ -203,13 +324,46 @@ function requireSellerLogin(req, res, next) {
 
 function requirePasswordChange(req, res, next) {
   if (req.session && req.session.mustChangePassword) {
+    if (req.path.startsWith("/api/")) {
+      return res.status(403).json({ error: "Change your password before using the seller dashboard." });
+    }
     return res.redirect("/change-password");
   }
 
   return next();
 }
 
-app.use(express.static(__dirname));
+app.use("/data", (req, res) => {
+  res.sendStatus(404);
+});
+
+app.use(
+  "/image",
+  express.static(path.join(__dirname, "image"), {
+    dotfiles: "deny",
+    index: false
+  })
+);
+
+const publicAssetPaths = [
+  "/index.html",
+  "/style.css",
+  "/script.js",
+  "/seller.css",
+  "/seller.js",
+  "/seller-translations.js",
+  "/login.css",
+  "/login.js",
+  "/change-password.js"
+];
+
+app.get(publicAssetPaths, (req, res, next) => {
+  res.sendFile(path.join(__dirname, req.path.slice(1)), (error) => {
+    if (error) {
+      next(error);
+    }
+  });
+});
 
 app.get("/api/health", (req, res) => {
   res.json({ ok: true, message: "Diamond Oil backend is running." });
@@ -272,14 +426,25 @@ app.post("/login", async (req, res) => {
       return res.status(401).json({ error: "Invalid login details." });
     }
 
-    req.session.sellerId = seller.id;
-    req.session.mustChangePassword = Boolean(seller.must_change_password);
+    req.session.regenerate((sessionError) => {
+      if (sessionError) {
+        console.error("Could not start a secure seller session:", sessionError);
+        return res.status(500).json({ error: "Unable to start a seller session." });
+      }
 
-    if (seller.must_change_password) {
-      return res.json({ redirect: "/change-password" });
-    }
+      req.session.sellerId = seller.id;
+      req.session.mustChangePassword = Boolean(seller.must_change_password);
+      req.session.save((saveError) => {
+        if (saveError) {
+          console.error("Could not save the seller session:", saveError);
+          return res.status(500).json({ error: "Unable to save the seller session." });
+        }
 
-    return res.json({ redirect: "/seller" });
+        return res.json({
+          redirect: seller.must_change_password ? "/change-password" : "/seller"
+        });
+      });
+    });
   } catch (error) {
     console.error("Login failed:", error);
     return res.status(500).json({ error: "Unable to log in." });
@@ -287,8 +452,19 @@ app.post("/login", async (req, res) => {
 });
 
 app.post("/logout", (req, res) => {
-  req.session.destroy(() => {
-    res.json({ success: true, redirect: "/login" });
+  req.session.destroy((error) => {
+    if (error) {
+      console.error("Could not end the seller session:", error);
+      return res.status(500).json({ error: "Unable to log out." });
+    }
+
+    res.clearCookie("connect.sid", {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: isProduction,
+      path: "/"
+    });
+    return res.json({ success: true, redirect: "/login" });
   });
 });
 
@@ -300,8 +476,8 @@ app.post("/change-password", requireSellerLogin, async (req, res) => {
   const newPassword = String(req.body.newPassword || "");
   const confirmPassword = String(req.body.confirmPassword || "");
 
-  if (newPassword.length < 6) {
-    return res.status(400).json({ error: "The new password must be at least 6 characters long." });
+  if (newPassword.length < 12) {
+    return res.status(400).json({ error: "The new password must be at least 12 characters long." });
   }
 
   if (newPassword !== confirmPassword) {
@@ -317,14 +493,20 @@ app.post("/change-password", requireSellerLogin, async (req, res) => {
     );
 
     req.session.mustChangePassword = false;
-    return res.json({ success: true, redirect: "/seller" });
+    req.session.save((sessionError) => {
+      if (sessionError) {
+        console.error("Could not save the updated seller session:", sessionError);
+        return res.status(500).json({ error: "Unable to save the seller session." });
+      }
+      return res.json({ success: true, redirect: "/seller" });
+    });
   } catch (error) {
     console.error("Password update failed:", error);
     return res.status(500).json({ error: "Unable to change the password." });
   }
 });
 
-app.get("/api/products", requireSellerLogin, async (req, res) => {
+app.get("/api/products", requireSellerLogin, requirePasswordChange, async (req, res) => {
   try {
     const products = await getSql(
       "SELECT id, name, size, price, quantity FROM products ORDER BY id DESC"
@@ -355,7 +537,7 @@ app.get("/api/store/products", async (req, res) => {
   }
 });
 
-app.post("/api/orders/:id/confirm", requireSellerLogin, async (req, res) => {
+app.post("/api/orders/:id/confirm", requireSellerLogin, requirePasswordChange, async (req, res) => {
   const orderId = Number(req.params.id);
 
   if (!Number.isInteger(orderId) || orderId <= 0) {
@@ -363,24 +545,66 @@ app.post("/api/orders/:id/confirm", requireSellerLogin, async (req, res) => {
   }
 
   try {
-    const orderRows = await getSql("SELECT status FROM orders WHERE id = ?", [orderId]);
-    if (orderRows.length === 0) {
-      return res.status(404).json({ error: "Order not found." });
-    }
+    await withTransaction(async function(transaction) {
+      const orderRows = await transaction.get("SELECT status FROM orders WHERE id = ?", [orderId]);
+      if (orderRows.length === 0) {
+        throw createRequestError(404, "Order not found.");
+      }
 
-    if (orderRows[0].status !== "pending") {
-      return res.status(400).json({ error: "Only pending orders can be confirmed." });
-    }
+      if (orderRows[0].status !== "pending") {
+        throw createRequestError(400, "Only pending orders can be confirmed.");
+      }
 
-    await runSql("UPDATE orders SET status = 'confirmed' WHERE id = ?", [orderId]);
+      const items = await transaction.get(
+        "SELECT product_id, quantity, product_name FROM order_items WHERE order_id = ?",
+        [orderId]
+      );
+      const products = [];
+
+      for (const item of items) {
+        const productRows = await transaction.get(
+          "SELECT id, name, quantity FROM products WHERE id = ?",
+          [item.product_id]
+        );
+        if (productRows.length === 0) {
+          throw createRequestError(404, `Product ${item.product_name} was not found.`);
+        }
+
+        if (item.quantity > productRows[0].quantity) {
+          throw createRequestError(
+            400,
+            `Not enough stock for ${productRows[0].name}. Available: ${productRows[0].quantity}.`
+          );
+        }
+        products.push(item);
+      }
+
+      for (const item of products) {
+        await transaction.run(
+          "UPDATE products SET quantity = quantity - ? WHERE id = ?",
+          [item.quantity, item.product_id]
+        );
+      }
+
+      const result = await transaction.run(
+        "UPDATE orders SET status = 'confirmed' WHERE id = ? AND status = 'pending'",
+        [orderId]
+      );
+      if (result.changes !== 1) {
+        throw createRequestError(409, "The order status changed before it could be confirmed.");
+      }
+    });
     res.json({ success: true, status: "confirmed" });
   } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error("Order confirmation failed:", error);
     res.status(500).json({ error: "Unable to confirm the order." });
   }
 });
 
-app.post("/api/orders/:id/cancel", requireSellerLogin, async (req, res) => {
+app.post("/api/orders/:id/cancel", requireSellerLogin, requirePasswordChange, async (req, res) => {
   const orderId = Number(req.params.id);
 
   if (!Number.isInteger(orderId) || orderId <= 0) {
@@ -388,30 +612,57 @@ app.post("/api/orders/:id/cancel", requireSellerLogin, async (req, res) => {
   }
 
   try {
-    const orderRows = await getSql("SELECT status FROM orders WHERE id = ?", [orderId]);
-    if (orderRows.length === 0) {
-      return res.status(404).json({ error: "Order not found." });
-    }
+    await withTransaction(async function(transaction) {
+      const orderRows = await transaction.get("SELECT status FROM orders WHERE id = ?", [orderId]);
+      if (orderRows.length === 0) {
+        throw createRequestError(404, "Order not found.");
+      }
 
-    if (orderRows[0].status === "cancelled") {
-      return res.status(400).json({ error: "This order has already been cancelled." });
-    }
+      const currentStatus = orderRows[0].status;
+      if (currentStatus === "cancelled") {
+        throw createRequestError(400, "This order has already been cancelled.");
+      }
+      if (currentStatus !== "pending" && currentStatus !== "confirmed") {
+        throw createRequestError(400, "This order cannot be cancelled.");
+      }
 
-    const items = await getSql(
-      "SELECT product_id, quantity FROM order_items WHERE order_id = ?",
-      [orderId]
-    );
+      if (currentStatus === "confirmed") {
+        const items = await transaction.get(
+          "SELECT product_id, quantity, product_name FROM order_items WHERE order_id = ?",
+          [orderId]
+        );
 
-    for (const item of items) {
-      await runSql(
-        "UPDATE products SET quantity = quantity + ? WHERE id = ?",
-        [item.quantity, item.product_id]
+        for (const item of items) {
+          const productRows = await transaction.get(
+            "SELECT id FROM products WHERE id = ?",
+            [item.product_id]
+          );
+          if (productRows.length === 0) {
+            throw createRequestError(409, `Cannot restore stock for ${item.product_name}; the product no longer exists.`);
+          }
+        }
+
+        for (const item of items) {
+          await transaction.run(
+            "UPDATE products SET quantity = quantity + ? WHERE id = ?",
+            [item.quantity, item.product_id]
+          );
+        }
+      }
+
+      const result = await transaction.run(
+        "UPDATE orders SET status = 'cancelled' WHERE id = ? AND status = ?",
+        [orderId, currentStatus]
       );
-    }
-
-    await runSql("UPDATE orders SET status = 'cancelled' WHERE id = ?", [orderId]);
+      if (result.changes !== 1) {
+        throw createRequestError(409, "The order status changed before it could be cancelled.");
+      }
+    });
     res.json({ success: true, status: "cancelled" });
   } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error("Order cancellation failed:", error);
     res.status(500).json({ error: "Unable to cancel the order." });
   }
@@ -427,6 +678,10 @@ app.post("/api/orders", async (req, res) => {
 
   if (!customerName || !phone || !address || !paymentMethod) {
     return res.status(400).json({ error: "Name, phone, address, and payment method are required." });
+  }
+
+  if (!/^[+()0-9\s-]{7,20}$/.test(phone)) {
+    return res.status(400).json({ error: "Please enter a valid phone number." });
   }
 
   if (items.length === 0) {
@@ -486,11 +741,6 @@ app.post("/api/orders", async (req, res) => {
         "INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?)",
         [orderResult.id, item.productId, item.productName, item.quantity, item.unitPrice, item.totalPrice]
       );
-
-      await runSql(
-        "UPDATE products SET quantity = quantity - ? WHERE id = ? AND quantity >= ?",
-        [item.quantity, item.productId, item.quantity]
-      );
     }
 
     res.status(201).json({
@@ -505,7 +755,7 @@ app.post("/api/orders", async (req, res) => {
   }
 });
 
-app.get("/api/orders", requireSellerLogin, async (req, res) => {
+app.get("/api/orders", requireSellerLogin, requirePasswordChange, async (req, res) => {
   try {
     const orders = await getSql(
       `
@@ -533,7 +783,7 @@ app.get("/api/orders", requireSellerLogin, async (req, res) => {
   }
 });
 
-app.get("/api/dashboard/summary", requireSellerLogin, async (req, res) => {
+app.get("/api/dashboard/summary", requireSellerLogin, requirePasswordChange, async (req, res) => {
   try {
     const inventory = await getSql(`
       SELECT
@@ -548,13 +798,10 @@ app.get("/api/dashboard/summary", requireSellerLogin, async (req, res) => {
         COUNT(*) AS totalOrders,
         SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pendingOrders,
         SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) AS confirmedOrders,
+        SUM(CASE WHEN status = 'confirmed' AND date(created_at) = date('now') THEN 1 ELSE 0 END) AS todayConfirmedOrders,
         SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) AS cancelledOrders,
         COALESCE(SUM(CASE WHEN status = 'confirmed' THEN total ELSE 0 END), 0) AS confirmedRevenue,
-        COALESCE(AVG(CASE WHEN status = 'confirmed' THEN total END), 0) AS averageOrderValue,
-        CASE
-          WHEN COUNT(*) = 0 THEN 0
-          ELSE ROUND((SUM(CASE WHEN status = 'confirmed' THEN 1 ELSE 0 END) * 100.0) / COUNT(*), 2)
-        END AS conversionRate
+        COALESCE(AVG(CASE WHEN status = 'confirmed' THEN total END), 0) AS averageOrderValue
       FROM orders
     `);
 
@@ -565,6 +812,16 @@ app.get("/api/dashboard/summary", requireSellerLogin, async (req, res) => {
       WHERE o.status = 'confirmed'
       GROUP BY oi.product_name
       ORDER BY unitsSold DESC, oi.product_name ASC
+      LIMIT 1
+    `);
+
+    const slowestProduct = await getSql(`
+      SELECT oi.product_name AS name, SUM(oi.quantity) AS unitsSold
+      FROM order_items oi
+      JOIN orders o ON o.id = oi.order_id
+      WHERE o.status = 'confirmed'
+      GROUP BY oi.product_name
+      ORDER BY unitsSold ASC, oi.product_name ASC
       LIMIT 1
     `);
 
@@ -594,10 +851,33 @@ app.get("/api/dashboard/summary", requireSellerLogin, async (req, res) => {
       "SELECT COUNT(*) AS visitorCount FROM visitors WHERE visit_date = date('now')"
     );
 
+    const revenueByPeriod = await getSql(`
+      SELECT
+        COALESCE(SUM(CASE WHEN status = 'confirmed' AND date(created_at) = date('now') THEN total ELSE 0 END), 0) AS todayRevenue,
+        COALESCE(SUM(CASE WHEN status = 'confirmed' AND date(created_at) >= date('now', '-6 days') THEN total ELSE 0 END), 0) AS weekRevenue,
+        COALESCE(SUM(CASE WHEN status = 'confirmed' AND date(created_at) >= date('now', 'start of month') THEN total ELSE 0 END), 0) AS monthRevenue
+      FROM orders
+    `);
+
+    const productPerformance = await getSql(`
+      SELECT
+        p.name,
+        p.quantity AS stockLeft,
+        COALESCE(SUM(CASE WHEN o.status = 'confirmed' THEN oi.quantity ELSE 0 END), 0) AS quantitySold,
+        COALESCE((p.quantity + SUM(CASE WHEN o.status = 'confirmed' THEN oi.quantity ELSE 0 END)), p.quantity) AS startingStock,
+        COALESCE(SUM(CASE WHEN o.status = 'confirmed' THEN oi.total_price ELSE 0 END), 0) AS moneyEarned
+      FROM products p
+      LEFT JOIN order_items oi ON oi.product_id = p.id
+      LEFT JOIN orders o ON o.id = oi.order_id
+      GROUP BY p.id, p.name, p.quantity
+      ORDER BY p.name ASC
+    `);
+
     const totalVisitors = Number(todayVisitors[0]?.visitorCount || 0);
     const totalOrdersPlaced = Number(orderStats[0]?.totalOrders || 0);
     const totalConfirmedOrders = Number(orderStats[0]?.confirmedOrders || 0);
-    const calculatedConversion = totalVisitors > 0 ? (totalConfirmedOrders / totalVisitors) * 100 : 0;
+    const todayConfirmedOrders = Number(orderStats[0]?.todayConfirmedOrders || 0);
+    const calculatedConversion = totalVisitors > 0 ? (todayConfirmedOrders / totalVisitors) * 100 : 0;
 
     const summary = {
       totalProducts: Number(inventory[0]?.totalProducts || 0),
@@ -608,8 +888,12 @@ app.get("/api/dashboard/summary", requireSellerLogin, async (req, res) => {
       pendingOrders: Number(orderStats[0]?.pendingOrders || 0),
       confirmedOrders: totalConfirmedOrders,
       ordersConfirmed: totalConfirmedOrders,
+      todayConfirmedOrders,
       cancelledOrders: Number(orderStats[0]?.cancelledOrders || 0),
       confirmedRevenue: Number(orderStats[0]?.confirmedRevenue || 0),
+      todayRevenue: Number(revenueByPeriod[0]?.todayRevenue || 0),
+      weekRevenue: Number(revenueByPeriod[0]?.weekRevenue || 0),
+      monthRevenue: Number(revenueByPeriod[0]?.monthRevenue || 0),
       averageOrderValue: Number(orderStats[0]?.averageOrderValue || 0),
       conversionRate: calculatedConversion,
       totalVisitors,
@@ -618,10 +902,18 @@ app.get("/api/dashboard/summary", requireSellerLogin, async (req, res) => {
         visitorCount: Number(entry.visitorCount || 0)
       })),
       topProduct: topProduct[0] || null,
+      slowestProduct: slowestProduct[0] || null,
       salesByDay: salesByDay.map((entry) => ({
         date: entry.date,
         orderCount: Number(entry.orderCount || 0),
         revenue: Number(entry.revenue || 0)
+      })),
+      productPerformance: productPerformance.map((entry) => ({
+        name: entry.name,
+        startingStock: Number(entry.startingStock || 0),
+        quantitySold: Number(entry.quantitySold || 0),
+        stockLeft: Number(entry.stockLeft || 0),
+        moneyEarned: Number(entry.moneyEarned || 0)
       }))
     };
 
@@ -632,7 +924,7 @@ app.get("/api/dashboard/summary", requireSellerLogin, async (req, res) => {
   }
 });
 
-app.post("/api/products", requireSellerLogin, async (req, res) => {
+app.post("/api/products", requireSellerLogin, requirePasswordChange, async (req, res) => {
   const { name, size, price, quantity } = req.body;
 
   if (!name || !String(name).trim()) {
@@ -672,7 +964,7 @@ app.post("/api/products", requireSellerLogin, async (req, res) => {
   }
 });
 
-app.put("/api/products/:id", requireSellerLogin, async (req, res) => {
+app.put("/api/products/:id", requireSellerLogin, requirePasswordChange, async (req, res) => {
   const productId = Number(req.params.id);
   const { name, size, price, quantity } = req.body;
 
@@ -717,7 +1009,7 @@ app.put("/api/products/:id", requireSellerLogin, async (req, res) => {
   }
 });
 
-app.delete("/api/products/:id", requireSellerLogin, async (req, res) => {
+app.delete("/api/products/:id", requireSellerLogin, requirePasswordChange, async (req, res) => {
   const productId = Number(req.params.id);
 
   if (!Number.isInteger(productId) || productId <= 0) {
@@ -725,9 +1017,36 @@ app.delete("/api/products/:id", requireSellerLogin, async (req, res) => {
   }
 
   try {
-    await runSql("DELETE FROM products WHERE id = ?", [productId]);
+    await withTransaction(async function(transaction) {
+      const products = await transaction.get("SELECT id FROM products WHERE id = ?", [productId]);
+      if (products.length === 0) {
+        throw createRequestError(404, "Product not found.");
+      }
+
+      const openOrders = await transaction.get(
+        `
+          SELECT o.id
+          FROM order_items oi
+          JOIN orders o ON o.id = oi.order_id
+          WHERE oi.product_id = ? AND o.status IN ('pending', 'confirmed')
+          LIMIT 1
+        `,
+        [productId]
+      );
+      if (openOrders.length > 0) {
+        throw createRequestError(
+          409,
+          "This product has a pending or confirmed order. Cancel the order before deleting the product."
+        );
+      }
+
+      await transaction.run("DELETE FROM products WHERE id = ?", [productId]);
+    });
     res.json({ success: true });
   } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error("Failed to delete product:", error);
     res.status(500).json({ error: "Unable to delete the product." });
   }
@@ -738,11 +1057,7 @@ app.get("/seller", requireSellerLogin, requirePasswordChange, (req, res) => {
 });
 
 app.get("/", (req, res) => {
-  if (req.session && req.session.sellerId) {
-    return res.redirect("/seller");
-  }
-
-  return res.redirect("/login");
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
 async function startServer() {

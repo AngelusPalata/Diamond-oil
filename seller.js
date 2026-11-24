@@ -12,6 +12,7 @@ const tableBody = document.getElementById("products-table-body");
 const ordersList = document.getElementById("orders-list");
 const salesHistoryList = document.getElementById("sales-history-list");
 const visitorsHistoryList = document.getElementById("visitors-history-list");
+const inventoryReportBody = document.getElementById("inventory-report-body");
 const submitButton = document.getElementById("submit-btn");
 const logoutButton = document.getElementById("logout-btn");
 const cancelEditButton = document.getElementById("cancel-edit-btn");
@@ -23,6 +24,7 @@ const ordersTitle = document.getElementById("orders-title");
 const statsTitle = document.getElementById("stats-title");
 const salesHistoryTitle = document.getElementById("sales-history-title");
 const visitorsHistoryTitle = document.getElementById("visitors-history-title");
+const inventoryReportTitle = document.getElementById("inventory-report-title");
 const statProductsLabel = document.getElementById("stat-products-label");
 const statLowStockLabel = document.getElementById("stat-low-stock-label");
 const statOrdersLabel = document.getElementById("stat-orders-label");
@@ -33,6 +35,10 @@ const statConfirmedLabel = document.getElementById("stat-confirmed-label");
 const statAverageOrderLabel = document.getElementById("stat-average-order-label");
 const statConversionLabel = document.getElementById("stat-conversion-label");
 const statTopProductLabel = document.getElementById("stat-top-product-label");
+const statSlowestProductLabel = document.getElementById("stat-slowest-product-label");
+const statTodayLabel = document.getElementById("stat-today-label");
+const statWeekLabel = document.getElementById("stat-week-label");
+const statMonthLabel = document.getElementById("stat-month-label");
 const productNameField = document.getElementById("product-name");
 const productSizeField = document.getElementById("product-size");
 const productPriceField = document.getElementById("product-price");
@@ -47,6 +53,11 @@ const statConfirmedOrders = document.getElementById("stat-confirmed-orders");
 const statAverageOrder = document.getElementById("stat-average-order");
 const statConversionRate = document.getElementById("stat-conversion-rate");
 const statTopProduct = document.getElementById("stat-top-product");
+const statSlowestProduct = document.getElementById("stat-slowest-product");
+const statTodayRevenue = document.getElementById("stat-today-revenue");
+const statWeekRevenue = document.getElementById("stat-week-revenue");
+const statMonthRevenue = document.getElementById("stat-month-revenue");
+const salesChart = document.getElementById("sales-chart");
 
 const translationMap = window.dashboardTranslations || {};
 
@@ -78,6 +89,7 @@ function setLanguage(lang) {
   statsTitle.textContent = text("statsTitle");
   salesHistoryTitle.textContent = text("salesHistory");
   visitorsHistoryTitle.textContent = text("visitorsByDay");
+  inventoryReportTitle.textContent = text("inventoryReport");
   statProductsLabel.textContent = text("totalProducts");
   statLowStockLabel.textContent = text("lowStockProducts");
   statOrdersLabel.textContent = text("ordersPlaced");
@@ -88,6 +100,10 @@ function setLanguage(lang) {
   statAverageOrderLabel.textContent = text("averageOrderValue");
   statConversionLabel.textContent = text("conversionRate");
   statTopProductLabel.textContent = text("topProduct");
+  statSlowestProductLabel.textContent = text("slowestProduct");
+  statTodayLabel.textContent = text("today");
+  statWeekLabel.textContent = text("thisWeek");
+  statMonthLabel.textContent = text("thisMonth");
   submitButton.textContent = state.editingProductId ? text("updateProduct") : text("saveProduct");
   cancelEditButton.textContent = text("cancelEdit");
   cancelEditButton.classList.toggle("hidden", !state.editingProductId);
@@ -110,6 +126,34 @@ function formatMoney(amount) {
   return `$${Number(amount).toFixed(2)}`;
 }
 
+function createElement(tagName, className, value) {
+  const element = document.createElement(tagName);
+  if (className) {
+    element.className = className;
+  }
+  if (value !== undefined) {
+    element.textContent = String(value);
+  }
+  return element;
+}
+
+function createEmptyStateRow(colSpan, message) {
+  const row = createElement("tr");
+  const cell = createElement("td", "empty-state", message);
+  cell.colSpan = colSpan;
+  row.appendChild(cell);
+  return row;
+}
+
+function createOrderDetail(label, value) {
+  const detail = createElement("div");
+  detail.append(
+    createElement("strong", "", `${label}:`),
+    document.createTextNode(` ${String(value)}`)
+  );
+  return detail;
+}
+
 function resetForm() {
   formElement.reset();
   state.editingProductId = null;
@@ -121,40 +165,48 @@ function resetForm() {
 
 function renderProducts() {
   if (!state.products.length) {
-    tableBody.innerHTML = `
-      <tr>
-        <td colspan="6" class="empty-state">${text("noProducts")}</td>
-      </tr>
-    `;
+    tableBody.replaceChildren(createEmptyStateRow(6, text("noProducts")));
     return;
   }
 
-  tableBody.innerHTML = state.products
-    .map((product) => {
-      const isLowStock = Number(product.quantity) <= 5;
-      const stockClass = isLowStock ? "low-stock" : "in-stock";
-      const stockLabel = isLowStock ? text("statusLowStock") : text("statusInStock");
+  const rows = state.products.map((product) => {
+    const isLowStock = Number(product.quantity) <= 5;
+    const stockClass = isLowStock ? "low-stock" : "in-stock";
+    const stockLabel = isLowStock ? text("statusLowStock") : text("statusInStock");
+    const row = createElement("tr");
+    const stockCell = createElement("td");
+    const stockPill = createElement("span", `stock-pill ${stockClass}`, stockLabel);
+    stockCell.appendChild(stockPill);
 
-      return `
-        <tr>
-          <td>${product.name}</td>
-          <td>${product.size}</td>
-          <td>${formatMoney(product.price)}</td>
-          <td>${product.quantity}</td>
-          <td>
-            <span class="stock-pill ${stockClass}">${stockLabel}</span>
-            ${isLowStock ? `<div style="margin-top: 8px; color: #ffb1b1; font-size: 0.8rem;">${text("lowStock")}</div>` : ""}
-          </td>
-          <td>
-            <div class="action-group">
-              <button type="button" class="small-btn edit" data-action="edit" data-id="${product.id}">${text("edit")}</button>
-              <button type="button" class="small-btn delete" data-action="delete" data-id="${product.id}">${text("delete")}</button>
-            </div>
-          </td>
-        </tr>
-      `;
-    })
-    .join("");
+    if (isLowStock) {
+      stockCell.appendChild(createElement("div", "low-stock-note", text("lowStock")));
+    }
+
+    const actionGroup = createElement("div", "action-group");
+    const editButton = createElement("button", "small-btn edit", text("edit"));
+    editButton.type = "button";
+    editButton.dataset.action = "edit";
+    editButton.dataset.id = String(product.id);
+    const deleteButton = createElement("button", "small-btn delete", text("delete"));
+    deleteButton.type = "button";
+    deleteButton.dataset.action = "delete";
+    deleteButton.dataset.id = String(product.id);
+    actionGroup.append(editButton, deleteButton);
+
+    const actionCell = createElement("td");
+    actionCell.appendChild(actionGroup);
+    row.append(
+      createElement("td", "", product.name),
+      createElement("td", "", product.size),
+      createElement("td", "", formatMoney(product.price)),
+      createElement("td", "", product.quantity),
+      stockCell,
+      actionCell
+    );
+    return row;
+  });
+
+  tableBody.replaceChildren(...rows);
 }
 
 function renderDashboardSummary() {
@@ -163,20 +215,27 @@ function renderDashboardSummary() {
     lowStockProducts: 0,
     totalOrders: 0,
     confirmedOrders: 0,
+    todayConfirmedOrders: 0,
     pendingOrders: 0,
     confirmedRevenue: 0,
     averageOrderValue: 0,
     conversionRate: 0,
     totalVisitors: 0,
+    todayRevenue: 0,
+    weekRevenue: 0,
+    monthRevenue: 0,
     visitorsByDay: [],
     topProduct: null,
-    salesByDay: []
+    slowestProduct: null,
+    salesByDay: [],
+    productPerformance: []
   };
 
   const totalOrdersPlaced = Number(summary.totalOrders || summary.ordersPlaced || 0);
   const totalConfirmedOrders = Number(summary.confirmedOrders || summary.ordersConfirmed || 0);
+  const todayConfirmedOrders = Number(summary.todayConfirmedOrders || 0);
   const totalVisitors = Number(summary.totalVisitors || 0);
-  const visitedRate = totalVisitors > 0 ? (totalConfirmedOrders / totalVisitors) * 100 : 0;
+  const visitedRate = totalVisitors > 0 ? (todayConfirmedOrders / totalVisitors) * 100 : 0;
 
   statProducts.textContent = String(summary.totalProducts || 0);
   statLowStock.textContent = String(summary.lowStockProducts || 0);
@@ -188,93 +247,160 @@ function renderDashboardSummary() {
   statAverageOrder.textContent = `$${Number(summary.averageOrderValue || 0).toFixed(2)}`;
   statConversionRate.textContent = `${visitedRate.toFixed(1)}%`;
   statTopProduct.textContent = summary.topProduct && summary.topProduct.name ? summary.topProduct.name : "-";
+  statSlowestProduct.textContent = summary.slowestProduct && summary.slowestProduct.name ? summary.slowestProduct.name : "-";
+  statTodayRevenue.textContent = `$${Number(summary.todayRevenue || 0).toFixed(2)}`;
+  statWeekRevenue.textContent = `$${Number(summary.weekRevenue || 0).toFixed(2)}`;
+  statMonthRevenue.textContent = `$${Number(summary.monthRevenue || 0).toFixed(2)}`;
 
-  if (!summary.salesByDay || summary.salesByDay.length === 0) {
-    salesHistoryList.innerHTML = `<li class="empty-state">${text("noSalesHistory")}</li>`;
+  const salesData = Array.isArray(summary.salesByDay) ? summary.salesByDay : [];
+  const maxRevenue = salesData.length > 0
+    ? Math.max(...salesData.map((entry) => Number(entry.revenue || 0)), 1)
+    : 1;
+
+  if (!salesData.length) {
+    salesChart.replaceChildren(createElement("div", "empty-state", text("noSalesHistory")));
   } else {
-    salesHistoryList.innerHTML = summary.salesByDay
-      .map((entry) => `
-        <li>
-          <span>${new Date(entry.date).toLocaleDateString()}</span>
-          <span>${entry.orderCount} · $${Number(entry.revenue || 0).toFixed(2)}</span>
-        </li>
-      `)
-      .join("");
+    const chartItems = salesData.map((entry) => {
+      const value = Number(entry.revenue || 0);
+      const height = Math.max(10, (value / maxRevenue) * 100);
+      const date = new Date(`${entry.date}T12:00:00`);
+      const chartItem = createElement("div", "sales-chart-item");
+      const barWrap = createElement("div", "sales-bar-wrap");
+      const bar = createElement("span", "sales-bar");
+      bar.style.height = `${height}%`;
+      barWrap.appendChild(bar);
+      chartItem.append(
+        barWrap,
+        createElement("small", "", date.toLocaleDateString(undefined, { month: "short", day: "numeric" })),
+        createElement("strong", "", `$${value.toFixed(2)}`)
+      );
+      return chartItem;
+    });
+    salesChart.replaceChildren(...chartItems);
   }
 
-  if (!summary.visitorsByDay || summary.visitorsByDay.length === 0) {
-    visitorsHistoryList.innerHTML = `<li class="empty-state">${text("noVisitorsHistory")}</li>`;
+  const salesHistory = Array.isArray(summary.salesByDay) ? summary.salesByDay : [];
+  if (salesHistory.length === 0) {
+    salesHistoryList.replaceChildren(createElement("li", "empty-state", text("noSalesHistory")));
   } else {
-    visitorsHistoryList.innerHTML = summary.visitorsByDay
-      .map((entry) => `
-        <li>
-          <span>${new Date(entry.date).toLocaleDateString()}</span>
-          <span>${entry.visitorCount} ${text("visitors")}</span>
-        </li>
-      `)
-      .join("");
+    const historyItems = salesHistory.map((entry) => {
+      const item = createElement("li");
+      item.append(
+        createElement("span", "", new Date(entry.date).toLocaleDateString()),
+        createElement("span", "", `${entry.orderCount} · $${Number(entry.revenue || 0).toFixed(2)}`)
+      );
+      return item;
+    });
+    salesHistoryList.replaceChildren(...historyItems);
   }
+
+  const visitorsHistory = Array.isArray(summary.visitorsByDay) ? summary.visitorsByDay : [];
+  if (visitorsHistory.length === 0) {
+    visitorsHistoryList.replaceChildren(createElement("li", "empty-state", text("noVisitorsHistory")));
+  } else {
+    const visitorItems = visitorsHistory.map((entry) => {
+      const item = createElement("li");
+      item.append(
+        createElement("span", "", new Date(entry.date).toLocaleDateString()),
+        createElement("span", "", `${entry.visitorCount} ${text("visitors")}`)
+      );
+      return item;
+    });
+    visitorsHistoryList.replaceChildren(...visitorItems);
+  }
+
+  const productRows = Array.isArray(summary.productPerformance) ? summary.productPerformance : [];
+  if (!productRows.length) {
+    inventoryReportBody.replaceChildren(createEmptyStateRow(5, text("noProducts")));
+    return;
+  }
+
+  const inventoryRows = productRows.map((product) => {
+    const row = createElement("tr");
+    row.append(
+      createElement("td", "", product.name),
+      createElement("td", "", Number(product.startingStock || 0)),
+      createElement("td", "", Number(product.quantitySold || 0)),
+      createElement("td", "", Number(product.stockLeft || 0)),
+      createElement("td", "", `$${Number(product.moneyEarned || 0).toFixed(2)}`)
+    );
+    return row;
+  });
+  inventoryReportBody.replaceChildren(...inventoryRows);
 }
 
 function renderOrders() {
   if (!state.orders.length) {
-    ordersList.innerHTML = `<div class="empty-state">${text("noOrders")}</div>`;
+    ordersList.replaceChildren(createElement("div", "empty-state", text("noOrders")));
     return;
   }
 
-  ordersList.innerHTML = state.orders
-    .map((order) => {
-      const items = Array.isArray(order.items) ? order.items : safeParse(order.items);
-      const statusKey = order.status === "confirmed"
-        ? "orderStatusConfirmed"
-        : order.status === "cancelled"
-          ? "orderStatusCancelled"
-          : "orderStatusPending";
-      const statusClass = order.status === "confirmed" ? "confirmed" : order.status === "cancelled" ? "cancelled" : "pending";
-      const itemList = items.length
-        ? items.map((item) => `<li>${item.productName || item.name} × ${item.quantity}</li>`).join("")
-        : "<li>—</li>";
+  const orderCards = state.orders.map((order) => {
+    const parsedItems = Array.isArray(order.items) ? order.items : safeParse(order.items);
+    const items = Array.isArray(parsedItems) ? parsedItems : [];
+    const statusKey = order.status === "confirmed"
+      ? "orderStatusConfirmed"
+      : order.status === "cancelled"
+        ? "orderStatusCancelled"
+        : "orderStatusPending";
+    const statusClass = order.status === "confirmed" ? "confirmed" : order.status === "cancelled" ? "cancelled" : "pending";
+    const card = createElement("article", "order-card");
+    const header = createElement("div", "order-header");
+    const heading = createElement(
+      "h3",
+      "order-title",
+      `${text("orderCustomer")}: ${order.customer_name || order.customerName || "-"}`
+    );
+    const status = createElement("span", `status-chip ${statusClass}`, text(statusKey));
+    header.append(heading, status);
 
-      const actionButtons = order.status === "pending"
-        ? `
-          <div class="order-actions">
-            <button type="button" class="confirm-btn" data-order-action="confirm" data-order-id="${order.id}">${text("orderConfirm")}</button>
-            <button type="button" class="cancel-btn" data-order-action="cancel" data-order-id="${order.id}">${text("orderCancel")}</button>
-          </div>
-        `
-        : "";
+    const contactDetails = createElement("div", "order-meta");
+    contactDetails.append(
+      createOrderDetail(text("orderPhone"), order.phone || "-"),
+      createOrderDetail(text("orderAddress"), order.address || "-"),
+      createOrderDetail(text("orderPayment"), order.payment_method || order.paymentMethod || "-"),
+      createOrderDetail(text("orderDate"), new Date(order.created_at).toLocaleString())
+    );
 
-      return `
-        <article class="order-card">
-          <div class="order-header">
-            <h3 class="order-title">${text("orderCustomer")}: ${order.customer_name || order.customerName || "-"}</h3>
-            <span class="status-chip ${statusClass}">${text(statusKey)}</span>
-          </div>
+    const itemsDetails = createElement("div", "order-meta");
+    itemsDetails.appendChild(createElement("strong", "", `${text("orderItems")}:`));
+    const itemList = createElement("ul", "order-items");
+    if (items.length) {
+      items.forEach((item) => {
+        const name = item && (item.productName || item.name) || "-";
+        const quantity = item && item.quantity !== undefined ? item.quantity : "-";
+        itemList.appendChild(createElement("li", "", `${name} × ${quantity}`));
+      });
+    } else {
+      itemList.appendChild(createElement("li", "", "—"));
+    }
+    itemsDetails.appendChild(itemList);
 
-          <div class="order-meta">
-            <div><strong>${text("orderPhone")}:</strong> ${order.phone || "-"}</div>
-            <div><strong>${text("orderAddress")}:</strong> ${order.address || "-"}</div>
-            <div><strong>${text("orderPayment")}:</strong> ${order.payment_method || order.paymentMethod || "-"}</div>
-            <div><strong>${text("orderDate")}:</strong> ${new Date(order.created_at).toLocaleString()}</div>
-          </div>
+    const summaryDetails = createElement("div", "order-meta");
+    summaryDetails.append(
+      createOrderDetail(text("orderNotes"), order.notes || "-"),
+      createOrderDetail(text("orderTotal"), formatMoney(order.total || 0))
+    );
 
-          <div class="order-meta">
-            <strong>${text("orderItems")}:</strong>
-            <ul class="order-items">${itemList}</ul>
-          </div>
+    const footer = createElement("div", "order-footer");
+    if (order.status === "pending") {
+      const actions = createElement("div", "order-actions");
+      const confirmButton = createElement("button", "confirm-btn", text("orderConfirm"));
+      confirmButton.type = "button";
+      confirmButton.dataset.orderAction = "confirm";
+      confirmButton.dataset.orderId = String(order.id);
+      const cancelButton = createElement("button", "cancel-btn", text("orderCancel"));
+      cancelButton.type = "button";
+      cancelButton.dataset.orderAction = "cancel";
+      cancelButton.dataset.orderId = String(order.id);
+      actions.append(confirmButton, cancelButton);
+      footer.appendChild(actions);
+    }
 
-          <div class="order-meta">
-            <div><strong>${text("orderNotes")}:</strong> ${order.notes || "-"}</div>
-            <div><strong>${text("orderTotal")}:</strong> ${formatMoney(order.total || 0)}</div>
-          </div>
-
-          <div class="order-footer">
-            ${actionButtons}
-          </div>
-        </article>
-      `;
-    })
-    .join("");
+    card.append(header, contactDetails, itemsDetails, summaryDetails, footer);
+    return card;
+  });
+  ordersList.replaceChildren(...orderCards);
 }
 
 async function fetchProducts() {
@@ -289,11 +415,7 @@ async function fetchProducts() {
     state.products = data.products || [];
     renderProducts();
   } catch (error) {
-    tableBody.innerHTML = `
-      <tr>
-        <td colspan="6" class="empty-state">${error.message}</td>
-      </tr>
-    `;
+    tableBody.replaceChildren(createEmptyStateRow(6, error.message));
   }
 }
 
@@ -313,7 +435,7 @@ async function fetchOrders() {
     }));
     renderOrders();
   } catch (error) {
-    ordersList.innerHTML = `<div class="empty-state">${error.message}</div>`;
+    ordersList.replaceChildren(createElement("div", "empty-state", error.message));
   }
 }
 
@@ -494,7 +616,7 @@ try {
   state.summary = data.summary || null;
   renderDashboardSummary();
 } catch (error) {
-  salesHistoryList.innerHTML = `<li class="empty-state">${error.message}</li>`;
+  salesHistoryList.replaceChildren(createElement("li", "empty-state", error.message));
 }
 }
 
