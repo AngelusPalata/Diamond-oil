@@ -495,6 +495,12 @@ html, body {
   gap: 28px;
 }
 
+.store-products-status {
+  min-height: 1.5em;
+  color: #d5c9bb;
+  text-align: center;
+}
+
 .collection-promo {
   max-width: 1000px;
   margin: 28px auto;

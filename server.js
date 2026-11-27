@@ -6,6 +6,7 @@ const sqlite3 = require("sqlite3").verbose();
 const dotenv = require("dotenv");
 const bcrypt = require("bcryptjs");
 const session = require("express-session");
+const { rateLimit } = require("express-rate-limit");
 
 dotenv.config();
 
@@ -15,6 +16,7 @@ const NODE_ENV = process.env.NODE_ENV || "development";
 const SESSION_SECRET = process.env.SESSION_SECRET || "";
 const SELLER_USERNAME = String(process.env.SELLER_USERNAME || "").trim();
 const SELLER_PASSWORD = process.env.SELLER_PASSWORD || "";
+const PASSWORD_HASH_ROUNDS = 12;
 const dbFolder = process.env.DATABASE_DIR
   ? path.resolve(__dirname, process.env.DATABASE_DIR)
   : path.resolve(__dirname, "..", "diamond-oil-private-data");
@@ -32,9 +34,7 @@ if (SESSION_SECRET.length < 32 || SESSION_SECRET.startsWith("replace_with_")) {
   throw new Error("Set SESSION_SECRET to a private value that is at least 32 characters long.");
 }
 
-if (!fs.existsSync(dbFolder)) {
-  fs.mkdirSync(dbFolder, { recursive: true });
-}
+fs.mkdirSync(dbFolder, { recursive: true, mode: 0o700 });
 
 if (!fs.existsSync(dbPath) && fs.existsSync(legacyDbPath)) {
   fs.renameSync(legacyDbPath, dbPath);
@@ -47,6 +47,7 @@ const db = new sqlite3.Database(dbPath, (error) => {
   }
   console.log("Connected to SQLite database.");
 });
+db.configure("busyTimeout", 5000);
 
 let databaseQueue = Promise.resolve();
 
@@ -168,6 +169,8 @@ class SQLiteSessionStore extends session.Store {
 }
 
 async function initDatabase() {
+  await runSql("PRAGMA foreign_keys = ON");
+
   // Create the products table when the server starts for the first time.
   await runSql(`
     CREATE TABLE IF NOT EXISTS products (
@@ -261,7 +264,7 @@ async function initDatabase() {
       throw new Error("Set SELLER_USERNAME and a private SELLER_PASSWORD that is at least 12 characters long.");
     }
 
-    const hashedPassword = await bcrypt.hash(SELLER_PASSWORD, 10);
+    const hashedPassword = await bcrypt.hash(SELLER_PASSWORD, PASSWORD_HASH_ROUNDS);
     await runSql(
       "INSERT INTO sellers (username, password_hash, must_change_password) VALUES (?, ?, 1)",
       [SELLER_USERNAME, hashedPassword]
@@ -274,6 +277,15 @@ const isProduction = NODE_ENV === "production";
 if (isProduction) {
   app.set("trust proxy", 1);
 }
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: "Too many login attempts. Please try again later." }
+});
 
 app.use(
   session({
@@ -391,7 +403,7 @@ app.get("/api/track-visitor", async (req, res) => {
     res.cookie("diamond_oil_visitor", visitorId, {
       httpOnly: true,
       sameSite: "lax",
-      secure: false,
+      secure: isProduction,
       maxAge: 1000 * 60 * 60 * 24 * 365
     });
 
@@ -406,7 +418,7 @@ app.get("/login", (req, res) => {
   res.sendFile(path.join(__dirname, "login.html"));
 });
 
-app.post("/login", async (req, res) => {
+app.post("/login", loginLimiter, async (req, res) => {
   const username = String(req.body.username || "").trim();
   const password = String(req.body.password || "");
 
@@ -424,6 +436,11 @@ app.post("/login", async (req, res) => {
     const isValidPassword = await bcrypt.compare(password, seller.password_hash);
     if (!isValidPassword) {
       return res.status(401).json({ error: "Invalid login details." });
+    }
+
+    if (bcrypt.getRounds(seller.password_hash) < PASSWORD_HASH_ROUNDS) {
+      const upgradedHash = await bcrypt.hash(password, PASSWORD_HASH_ROUNDS);
+      await runSql("UPDATE sellers SET password_hash = ? WHERE id = ?", [upgradedHash, seller.id]);
     }
 
     req.session.regenerate((sessionError) => {
@@ -486,7 +503,7 @@ app.post("/change-password", requireSellerLogin, async (req, res) => {
 
   try {
     const sellerId = req.session.sellerId;
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, PASSWORD_HASH_ROUNDS);
     await runSql(
       "UPDATE sellers SET password_hash = ?, must_change_password = 0 WHERE id = ?",
       [hashedPassword, sellerId]
@@ -669,12 +686,13 @@ app.post("/api/orders/:id/cancel", requireSellerLogin, requirePasswordChange, as
 });
 
 app.post("/api/orders", async (req, res) => {
-  const customerName = String(req.body.customerName || "").trim();
-  const phone = String(req.body.phone || "").trim();
-  const address = String(req.body.address || "").trim();
-  const paymentMethod = String(req.body.paymentMethod || "").trim();
-  const notes = String(req.body.notes || "").trim();
-  const items = Array.isArray(req.body.items) ? req.body.items : [];
+  const requestBody = req.body && typeof req.body === "object" ? req.body : {};
+  const customerName = String(requestBody.customerName || "").trim();
+  const phone = String(requestBody.phone || "").trim();
+  const address = String(requestBody.address || "").trim();
+  const paymentMethod = String(requestBody.paymentMethod || "").trim();
+  const notes = String(requestBody.notes || "").trim();
+  const items = Array.isArray(requestBody.items) ? requestBody.items : [];
 
   if (!customerName || !phone || !address || !paymentMethod) {
     return res.status(400).json({ error: "Name, phone, address, and payment method are required." });
@@ -688,68 +706,97 @@ app.post("/api/orders", async (req, res) => {
     return res.status(400).json({ error: "At least one product is required for the order." });
   }
 
+  if (items.length > 50) {
+    return res.status(400).json({ error: "An order can contain at most 50 different products." });
+  }
+
   try {
-    const validatedItems = [];
-    let total = 0;
+    const order = await withTransaction(async (transaction) => {
+      const requestedQuantities = new Map();
+      for (const rawItem of items) {
+        const productId = Number(rawItem && rawItem.productId);
+        const quantity = Number(rawItem && rawItem.quantity);
 
-    for (const rawItem of items) {
-      const productId = Number(rawItem.productId);
-      const requestedQuantity = Number(rawItem.quantity);
+        if (!Number.isSafeInteger(productId) || productId <= 0) {
+          throw createRequestError(400, "Each item must include a valid product id.");
+        }
 
-      if (!Number.isInteger(productId) || productId <= 0) {
-        return res.status(400).json({ error: "Each item must include a valid product id." });
+        if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+          throw createRequestError(400, "Each product quantity must be at least 1.");
+        }
+
+        const combinedQuantity = (requestedQuantities.get(productId) || 0) + quantity;
+        if (!Number.isSafeInteger(combinedQuantity)) {
+          throw createRequestError(400, "The requested product quantity is too large.");
+        }
+        requestedQuantities.set(productId, combinedQuantity);
       }
 
-      if (!Number.isInteger(requestedQuantity) || requestedQuantity <= 0) {
-        return res.status(400).json({ error: "Each product quantity must be at least 1." });
-      }
+      const validatedItems = [];
+      let total = 0;
+      for (const [productId, requestedQuantity] of requestedQuantities) {
+        const productRows = await transaction.get(
+          "SELECT id, name, price, quantity FROM products WHERE id = ?",
+          [productId]
+        );
 
-      const productRows = await getSql(
-        "SELECT id, name, size, price, quantity FROM products WHERE id = ?",
-        [productId]
-      );
+        if (productRows.length === 0) {
+          throw createRequestError(404, `Product ${productId} was not found.`);
+        }
 
-      if (productRows.length === 0) {
-        return res.status(404).json({ error: `Product ${productId} was not found.` });
-      }
+        const product = productRows[0];
+        if (requestedQuantity > product.quantity) {
+          throw createRequestError(
+            400,
+            `Not enough stock for ${product.name}. Available: ${product.quantity}.`
+          );
+        }
 
-      const product = productRows[0];
-      if (requestedQuantity > product.quantity) {
-        return res.status(400).json({
-          error: `Not enough stock for ${product.name}. Available: ${product.quantity}.`
+        const lineTotal = product.price * requestedQuantity;
+        if (!Number.isFinite(lineTotal)) {
+          throw createRequestError(400, "The order total is too large.");
+        }
+
+        validatedItems.push({
+          productId: product.id,
+          productName: product.name,
+          quantity: requestedQuantity,
+          unitPrice: product.price,
+          totalPrice: lineTotal
         });
+        total += lineTotal;
       }
 
-      const lineTotal = product.price * requestedQuantity;
-      validatedItems.push({
-        productId: product.id,
-        productName: product.name,
-        quantity: requestedQuantity,
-        unitPrice: product.price,
-        totalPrice: lineTotal
-      });
-      total += lineTotal;
-    }
+      if (!Number.isFinite(total)) {
+        throw createRequestError(400, "The order total is too large.");
+      }
 
-    const orderResult = await runSql(
-      "INSERT INTO orders (customer_name, phone, address, payment_method, notes, total) VALUES (?, ?, ?, ?, ?, ?)",
-      [customerName, phone, address, paymentMethod, notes, total]
-    );
-
-    for (const item of validatedItems) {
-      await runSql(
-        "INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?)",
-        [orderResult.id, item.productId, item.productName, item.quantity, item.unitPrice, item.totalPrice]
+      const orderResult = await transaction.run(
+        "INSERT INTO orders (customer_name, phone, address, payment_method, notes, total) VALUES (?, ?, ?, ?, ?, ?)",
+        [customerName, phone, address, paymentMethod, notes, total]
       );
-    }
+
+      for (const item of validatedItems) {
+        await transaction.run(
+          "INSERT INTO order_items (order_id, product_id, product_name, quantity, unit_price, total_price) VALUES (?, ?, ?, ?, ?, ?)",
+          [orderResult.id, item.productId, item.productName, item.quantity, item.unitPrice, item.totalPrice]
+        );
+      }
+
+      return { orderId: orderResult.id, total, items: validatedItems };
+    });
 
     res.status(201).json({
       success: true,
-      orderId: orderResult.id,
+      orderId: order.orderId,
       status: "pending",
-      total
+      total: order.total,
+      items: order.items
     });
   } catch (error) {
+    if (error.status) {
+      return res.status(error.status).json({ error: error.message });
+    }
     console.error("Order creation failed:", error);
     res.status(500).json({ error: "Unable to place the order." });
   }

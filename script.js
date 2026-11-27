@@ -32,12 +32,13 @@ const translations = {
     openWhatsapp: "Ouvrir la commande dans WhatsApp",
     tagline: "Portez votre signature",
     selection: "La sélection Diamond Oil",
-    ourFragrance: "Notre parfum",
+    ourFragrance: "Nos parfums",
     collectionEyebrow: "Plus de choix",
     collectionTitle: "Une collection encore plus grande",
     collectionText: "D’autres parfums sont disponibles mais ne sont pas tous affichés ici.",
     collectionAlt: "Autres parfums disponibles chez Diamond Oil",
     productSummary: "Un parfum mixte, chaud et gourmand.",
+    genericProductDescription: "Découvrez cette fragrance de la collection Diamond Oil.",
     learnMore: "Découvrir la description",
     productFullDescription: "Une fragrance sensuelle aux accents épicés et ambrés.",
     bvlgariTygarDescription: "Une senteur fraîche, fruitée et puissante.",
@@ -75,9 +76,16 @@ const translations = {
     addedToCart: (name) => `${name} ajouté au panier.`,
     emptyCheckout: "Ajoutez au moins un produit à votre panier avant de continuer.",
     missingDetails: "Veuillez renseigner votre nom, votre téléphone et votre adresse avant de continuer.",
+    loadingProducts: "Chargement des parfums…",
+    noProductsAvailable: "Aucun parfum n’est disponible pour le moment.",
+    storeProductsError: "Impossible de charger les parfums. Veuillez réessayer plus tard.",
+    stockLimit: (available) => `La quantité disponible est de ${available}.`,
+    orderSaved: (orderId) => `Commande #${orderId} enregistrée. Vérifiez-la dans WhatsApp puis appuyez sur Envoyer.`,
+    orderSaveError: "La commande n’a pas pu être enregistrée. Veuillez réessayer.",
     whatsappUnavailable: "Vos informations sont prêtes, mais la commande WhatsApp n’est pas encore activée. La boutique doit ajouter son numéro WhatsApp.",
     whatsappOpened: "Votre commande est prête. Vérifiez-la dans WhatsApp puis appuyez sur Envoyer.",
     whatsappGreeting: "Bonjour Diamond Oil, je souhaite passer une commande.",
+    orderNumber: "Numéro de commande :",
     products: "Produits :",
     each: "l’unité",
     orderTotal: "Total de la commande :",
@@ -121,7 +129,7 @@ const translations = {
     openWhatsapp: "Open order in WhatsApp",
     tagline: "Wear Your Signature",
     selection: "The Diamond Oil selection",
-    ourFragrance: "Our fragrance",
+    ourFragrance: "Our fragrances",
     collectionEyebrow: "More choices",
     collectionTitle: "An even larger collection",
     collectionText: "More fragrances are available, but not all are listed here.",
@@ -164,9 +172,16 @@ const translations = {
     addedToCart: (name) => `${name} added to your cart.`,
     emptyCheckout: "Please add at least one product to your cart before continuing.",
     missingDetails: "Please enter your name, phone number, and address before continuing.",
+    loadingProducts: "Loading fragrances…",
+    noProductsAvailable: "No fragrances are available right now.",
+    storeProductsError: "Unable to load fragrances. Please try again later.",
+    stockLimit: (available) => `Only ${available} are available.`,
+    orderSaved: (orderId) => `Order #${orderId} is saved. Review it in WhatsApp and tap Send.`,
+    orderSaveError: "The order could not be saved. Please try again.",
     whatsappUnavailable: "Your details are ready, but WhatsApp ordering is not active yet. The shop must add its WhatsApp number first.",
     whatsappOpened: "Your order is ready. Review it in WhatsApp and tap Send.",
     whatsappGreeting: "Hello Diamond Oil, I would like to place an order.",
+    orderNumber: "Order number:",
     products: "Products:",
     each: "each",
     orderTotal: "Order total:",
@@ -192,6 +207,166 @@ try {
 function text(key, ...args) {
   const value = translations[currentLanguage][key];
   return typeof value === "function" ? value(...args) : value;
+}
+
+const storeProductsGrid = document.getElementById("products-grid");
+const storeProductsStatus = document.getElementById("store-products-status");
+const storeProductPresentations = [
+  {
+    terms: ["azzaro", "mostwanted"],
+    brand: "AZZARO",
+    title: "The Most Wanted",
+    image: "image/main-pic.jpeg",
+    descriptionKey: "productSummary"
+  },
+  {
+    terms: ["bvlgari", "tygar"],
+    brand: "BVLGARI",
+    title: "Tygar",
+    image: "image/Bvlgari-tygar.JPG",
+    descriptionKey: "bvlgariTygarDescription"
+  },
+  {
+    terms: ["eclaire"],
+    brand: "LATTAFA",
+    title: "Eclaire",
+    image: "image/Eclaire.JPG",
+    descriptionKey: "eclaireDescription"
+  },
+  {
+    terms: ["oud", "maracuja"],
+    brand: "MAISON CRIVELLI",
+    title: "Oud Maracuja",
+    image: "image/Oud-maracuja.JPG",
+    descriptionKey: "oudMaracujaDescription"
+  },
+  {
+    terms: ["scandal"],
+    brand: "JEAN PAUL GAULTIER",
+    title: "Scandal",
+    image: "image/Scandal.JPG",
+    descriptionKey: "scandalDescription"
+  }
+];
+
+function getStoreProductPresentation(name) {
+  const normalizedName = name.toLowerCase().replace(/[^a-z0-9]/g, "");
+  return storeProductPresentations.find((presentation) =>
+    presentation.terms.every((term) => normalizedName.includes(term))
+  ) || {
+    brand: "Diamond Oil",
+    title: name,
+    image: "image/Collection.JPG",
+    descriptionKey: "genericProductDescription"
+  };
+}
+
+function renderStoreProducts(products) {
+  const cards = products.map((product) => {
+    const productId = Number(product.id);
+    const price = Number(product.price);
+    const quantity = Number(product.quantity);
+    if (!Number.isSafeInteger(productId) || productId <= 0
+      || !Number.isFinite(price) || price < 0
+      || !Number.isSafeInteger(quantity) || quantity <= 0) {
+      throw new Error("The storefront received an invalid product record.");
+    }
+
+    const presentation = getStoreProductPresentation(String(product.name));
+    const card = document.createElement("article");
+    card.className = "product-card";
+    card.setAttribute("aria-labelledby", `product-title-${productId}`);
+
+    const image = document.createElement("img");
+    image.className = "product-image";
+    image.src = presentation.image;
+    image.alt = `${product.name} perfume bottle`;
+    image.loading = "lazy";
+
+    const details = document.createElement("div");
+    details.className = "product-details";
+    const brand = document.createElement("p");
+    brand.className = "product-brand";
+    brand.textContent = presentation.brand;
+    const title = document.createElement("h2");
+    title.id = `product-title-${productId}`;
+    title.textContent = presentation.title;
+    const size = document.createElement("p");
+    size.className = "product-size";
+    size.textContent = product.size;
+    const description = document.createElement("p");
+    description.className = "product-description";
+    description.dataset.i18n = presentation.descriptionKey;
+    description.textContent = text(presentation.descriptionKey);
+
+    const quantityControl = document.createElement("div");
+    quantityControl.className = "product-quantity";
+    const quantityLabel = document.createElement("label");
+    quantityLabel.htmlFor = `product-quantity-${productId}`;
+    quantityLabel.dataset.i18n = "quantity";
+    quantityLabel.textContent = text("quantity");
+    const quantityInput = document.createElement("input");
+    quantityInput.id = `product-quantity-${productId}`;
+    quantityInput.type = "number";
+    quantityInput.min = "1";
+    quantityInput.max = String(quantity);
+    quantityInput.step = "1";
+    quantityInput.value = "1";
+    quantityInput.inputMode = "numeric";
+    quantityInput.dataset.productQuantity = "";
+    quantityControl.append(quantityLabel, quantityInput);
+
+    const purchase = document.createElement("div");
+    purchase.className = "product-purchase";
+    const productPrice = document.createElement("strong");
+    productPrice.className = "product-price";
+    productPrice.textContent = `$${price.toFixed(2)}`;
+    const addButton = document.createElement("button");
+    addButton.className = "add-to-cart-btn";
+    addButton.type = "button";
+    addButton.dataset.addToCart = "";
+    addButton.dataset.productId = String(productId);
+    addButton.dataset.productName = product.name;
+    addButton.dataset.productPrice = String(price);
+    addButton.dataset.stock = String(quantity);
+    addButton.dataset.i18n = "addToCart";
+    addButton.textContent = text("addToCart");
+    purchase.append(productPrice, addButton);
+
+    details.append(brand, title, size, description, quantityControl, purchase);
+    card.append(image, details);
+    return card;
+  });
+
+  storeProductsGrid.replaceChildren(...cards);
+}
+
+function setStoreProductsStatus(key) {
+  storeProductsStatus.dataset.i18n = key;
+  storeProductsStatus.textContent = text(key);
+}
+
+async function loadStoreProducts() {
+  setStoreProductsStatus("loadingProducts");
+  try {
+    const response = await fetch("/api/store/products");
+    const data = await response.json();
+    if (!response.ok || !Array.isArray(data.products)) {
+      throw new Error(data.error || "Unable to load products.");
+    }
+
+    renderStoreProducts(data.products);
+    if (data.products.length) {
+      delete storeProductsStatus.dataset.i18n;
+      storeProductsStatus.textContent = "";
+    } else {
+      setStoreProductsStatus("noProductsAvailable");
+    }
+  } catch (error) {
+    console.error("Storefront product loading failed.", error);
+    storeProductsGrid.replaceChildren();
+    setStoreProductsStatus("storeProductsError");
+  }
 }
 
 async function trackVisitor() {
@@ -281,6 +456,7 @@ const cartItemsElement = document.getElementById("cart-items");
 const cartCount = document.getElementById("cart-count");
 const cartTotal = document.getElementById("cart-total");
 const cartItems = new Map();
+let orderSubmitting = false;
 
 function setCartOpen(isOpen) {
   cartPanel.classList.toggle("open", isOpen);
@@ -336,6 +512,7 @@ function renderCart() {
     increaseButton.setAttribute("aria-label", text("addOne", item.name));
     increaseButton.dataset.cartAction = "increase";
     increaseButton.dataset.cartItemId = id;
+    increaseButton.disabled = item.quantity >= item.stock;
 
     controls.append(decreaseButton, increaseButton);
     row.append(details, controls);
@@ -364,9 +541,13 @@ document.addEventListener("click", function(event) {
   if (addToCartButton) {
     const name = addToCartButton.dataset.productName?.trim();
     const price = Number(addToCartButton.dataset.productPrice);
+    const productId = Number(addToCartButton.dataset.productId);
+    const stock = Number(addToCartButton.dataset.stock);
     const quantityField = addToCartButton.closest(".product-details")?.querySelector("[data-product-quantity]");
     const quantity = quantityField ? Number(quantityField.value) : 1;
-    if (!name || !Number.isFinite(price) || price < 0) {
+    if (!name || !Number.isSafeInteger(productId) || productId <= 0
+      || !Number.isFinite(price) || price < 0
+      || !Number.isSafeInteger(stock) || stock <= 0) {
       orderStatus.textContent = text("invalidProduct");
       orderStatus.hidden = false;
       return;
@@ -378,12 +559,19 @@ document.addEventListener("click", function(event) {
       return;
     }
 
-    const id = addToCartButton.dataset.productId || `${name}:${price}`;
+    const id = String(productId);
     const existingItem = cartItems.get(id);
+    const nextQuantity = (existingItem ? existingItem.quantity : 0) + quantity;
+    if (nextQuantity > stock) {
+      orderStatus.textContent = text("stockLimit", stock);
+      orderStatus.hidden = false;
+      return;
+    }
+
     if (existingItem) {
-      existingItem.quantity += quantity;
+      existingItem.quantity = nextQuantity;
     } else {
-      cartItems.set(id, { name, price, quantity });
+      cartItems.set(id, { productId, name, price, quantity, stock });
     }
 
     renderCart();
@@ -402,6 +590,11 @@ document.addEventListener("click", function(event) {
     }
 
     if (cartActionButton.dataset.cartAction === "increase") {
+      if (item.quantity >= item.stock) {
+        orderStatus.textContent = text("stockLimit", item.stock);
+        orderStatus.hidden = false;
+        return;
+      }
       item.quantity += 1;
     } else {
       item.quantity -= 1;
@@ -424,7 +617,11 @@ document.addEventListener("click", function(event) {
   }
 });
 
-checkoutBtn.addEventListener("click", function() {
+checkoutBtn.addEventListener("click", async function() {
+  if (orderSubmitting) {
+    return;
+  }
+
   if (cartItems.size === 0) {
     orderStatus.textContent = text("emptyCheckout");
     orderStatus.hidden = false;
@@ -445,27 +642,6 @@ checkoutBtn.addEventListener("click", function() {
   }
 
   const whatsappNumber = "243996572988";
-  const orderLines = Array.from(cartItems.values()).map(function(item) {
-    const lineTotal = item.price * item.quantity;
-    return `- ${item.name} × ${item.quantity} @ $${item.price.toFixed(2)} ${text("each")} = $${lineTotal.toFixed(2)}`;
-  });
-  const total = Array.from(cartItems.values()).reduce(function(sum, item) {
-    return sum + item.price * item.quantity;
-  }, 0);
-  const message = [
-    text("whatsappGreeting"),
-    "",
-    text("products"),
-    ...orderLines,
-    `${text("orderTotal")} $${total.toFixed(2)}`,
-    "",
-    `${text("customerName")} ${name}`,
-    `${text("customerPhone")} ${phone}`,
-    `${text("customerAddress")} ${address}`,
-    `${text("customerPayment")} ${text(paymentMethod.value)}`,
-    `${text("customerNotes")} ${notes || text("noNotes")}`
-  ].join("\n");
-
   if (!/^\d+$/.test(whatsappNumber)) {
     orderStatus.textContent = text("whatsappUnavailable");
     orderStatus.hidden = false;
@@ -473,15 +649,76 @@ checkoutBtn.addEventListener("click", function() {
     return;
   }
 
-  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
-  orderStatus.textContent = text("whatsappOpened");
-  orderStatus.hidden = false;
-  orderWhatsappLink.href = whatsappUrl;
-  orderWhatsappLink.hidden = false;
-  window.open(whatsappUrl, "_blank", "noopener,noreferrer");
+  orderSubmitting = true;
+  checkoutBtn.disabled = true;
+  const whatsappWindow = window.open("about:blank", "_blank");
+  try {
+    const response = await fetch("/api/orders", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        customerName: name,
+        phone,
+        address,
+        paymentMethod: paymentMethod.value,
+        notes,
+        items: Array.from(cartItems.values(), (item) => ({
+          productId: item.productId,
+          quantity: item.quantity
+        }))
+      })
+    });
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || text("orderSaveError"));
+    }
+
+    const orderLines = data.items.map((item) =>
+      `- ${item.productName} × ${item.quantity} @ $${Number(item.unitPrice).toFixed(2)} ${text("each")} = $${Number(item.totalPrice).toFixed(2)}`
+    );
+    const message = [
+      text("whatsappGreeting"),
+      "",
+      `${text("orderNumber")} ${data.orderId}`,
+      text("products"),
+      ...orderLines,
+      `${text("orderTotal")} $${Number(data.total).toFixed(2)}`,
+      "",
+      `${text("customerName")} ${name}`,
+      `${text("customerPhone")} ${phone}`,
+      `${text("customerAddress")} ${address}`,
+      `${text("customerPayment")} ${text(paymentMethod.value)}`,
+      `${text("customerNotes")} ${notes || text("noNotes")}`
+    ].join("\n");
+    const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(message)}`;
+
+    orderStatus.textContent = text("orderSaved", data.orderId);
+    orderStatus.hidden = false;
+    orderWhatsappLink.href = whatsappUrl;
+    orderWhatsappLink.hidden = false;
+    if (whatsappWindow && !whatsappWindow.closed) {
+      whatsappWindow.opener = null;
+      whatsappWindow.location.href = whatsappUrl;
+    }
+
+    cartItems.clear();
+    renderCart();
+  } catch (error) {
+    if (whatsappWindow && !whatsappWindow.closed) {
+      whatsappWindow.close();
+    }
+    console.error("Order submission failed.", error);
+    orderStatus.textContent = error.message || text("orderSaveError");
+    orderStatus.hidden = false;
+    orderWhatsappLink.hidden = true;
+  } finally {
+    orderSubmitting = false;
+    checkoutBtn.disabled = false;
+  }
 });
 
 trackVisitor();
+loadStoreProducts();
 translatePage();
 
 const fadeElements = document.querySelectorAll(".fade-in");
